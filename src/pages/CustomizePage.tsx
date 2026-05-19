@@ -219,7 +219,7 @@ export default function CustomizePage({ onNavigate }: CustomizePageProps) {
     return true;
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     setError('');
     setReceiptError('');
 
@@ -242,27 +242,42 @@ export default function CustomizePage({ onNavigate }: CustomizePageProps) {
     };
 
     setLoading(true);
-    setTimeout(async () => {
-      const order = await Promise.resolve(createOrder({
-        customerId: currentUser!.id,
-        customerName: formData.fullName,
-        contactNumber: formData.contactNumber,
-        email: formData.email,
-        items: [],
-        totalAmount: budget.min,
-        pickupDate: formData.pickupDate,
-        pickupTime: formData.pickupTime,
-        messageCard: formData.messageCard,
-        paymentMethod: formData.paymentMethod,
-        gcashRefNumber: formData.gcashRefNumber.trim(),
-        gcashReceiptImage: receiptImage || undefined,
-        customArrangement,
-        isCustomOrder: true,
-      }));
+    try {
+      const order = await Promise.resolve(
+        createOrder({
+          customerId: currentUser!.id,
+          customerName: formData.fullName,
+          contactNumber: formData.contactNumber,
+          email: formData.email,
+          items: [],
+          totalAmount: budget.min,
+          pickupDate: formData.pickupDate,
+          pickupTime: formData.pickupTime,
+          messageCard: formData.messageCard,
+          paymentMethod: formData.paymentMethod,
+          gcashRefNumber: formData.gcashRefNumber.trim(),
+          gcashReceiptImage: receiptImage || undefined,
+          customArrangement,
+          isCustomOrder: true,
+        })
+      );
+
+      if (!order || !order.orderNumber) {
+        throw new Error('Order was not created. Please try again.');
+      }
+
       setOrderNumber(order.orderNumber);
       setOrderComplete(true);
+    } catch (err) {
+      console.error('Custom order failed:', err);
+      setError(
+        err instanceof Error
+          ? `Could not submit custom order: ${err.message}`
+          : 'Could not submit custom order. Please try again.'
+      );
+    } finally {
       setLoading(false);
-    }, 1000);
+    }
   };
 
   // ============ ORDER COMPLETE ============
