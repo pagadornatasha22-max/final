@@ -79,30 +79,33 @@ export function OrderProvider({ children }: { children: ReactNode }) {
   const createOrder = (orderData: Omit<Order, 'id' | 'orderNumber' | 'status' | 'createdAt' | 'updatedAt'>) => {
     if (apiUrl) {
       return (async () => {
+        const response = await fetch(`${apiUrl}/api/orders`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(orderData),
+        });
+
+        const text = await response.text();
+        let payload: any = {};
         try {
-          const response = await fetch(`${apiUrl}/api/orders`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(orderData),
-          });
-          if (!response.ok) throw new Error(`API error ${response.status}`);
-          const text = await response.text();
-          let newOrder: Order;
-          try {
-            newOrder = JSON.parse(text);
-          } catch {
-            throw new Error('API returned invalid JSON');
-          }
-          setOrders((prev) => [newOrder, ...prev]);
-          return newOrder;
-        } catch (error) {
-          // API unreachable or returned HTML/error — fall back to localStorage so checkout never gets stuck.
-          console.warn('createOrder API failed, using localStorage fallback:', error);
-          const newOrder = buildLocalOrder(orderData);
-          const updated = [newOrder, ...orders];
-          saveOrders(updated);
-          return newOrder;
+          payload = text ? JSON.parse(text) : {};
+        } catch {
+          // Server returned non-JSON (often HTML when the route is missing).
+          throw new Error(
+            `Server responded with non-JSON (status ${response.status}). The /api/orders route may not be reachable. Check that the backend is deployed and VITE_API_URL is correct.`
+          );
         }
+
+        if (!response.ok) {
+          // Surface the real server message so we can see SQL/FK errors in the UI.
+          const serverMessage =
+            payload.error || payload.message || `Database rejected the order (HTTP ${response.status}).`;
+          throw new Error(serverMessage);
+        }
+
+        const newOrder = payload as Order;
+        setOrders((prev) => [newOrder, ...prev]);
+        return newOrder;
       })();
     }
 
