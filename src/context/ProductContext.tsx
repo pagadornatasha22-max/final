@@ -17,7 +17,8 @@ const ProductContext = createContext<ProductContextType | undefined>(undefined);
 export function ProductProvider({ children }: { children: ReactNode }) {
   const [products, setProducts] = useState<Product[]>([]);
   const [isDatabaseConnected, setIsDatabaseConnected] = useState(false);
-  const apiUrl = (import.meta as any).env?.VITE_API_URL as string | undefined;
+  const apiUrl = ((import.meta as any).env?.VITE_API_URL ||
+    (typeof window !== 'undefined' && window.location.hostname !== 'localhost' ? window.location.origin : undefined)) as string | undefined;
 
   useEffect(() => {
     refreshProducts();
