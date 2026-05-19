@@ -124,7 +124,7 @@ export default function CheckoutPage({ onNavigate, directOrderProductId }: Check
     return true;
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (checkoutItems.length === 0) return;
 
@@ -145,29 +145,43 @@ export default function CheckoutPage({ onNavigate, directOrderProductId }: Check
     }
 
     setLoading(true);
-    setTimeout(async () => {
-      const order = await Promise.resolve(createOrder({
-        customerId: currentUser!.id,
-        customerName: formData.fullName,
-        contactNumber: formData.contactNumber,
-        email: formData.email,
-        items: checkoutItems,
-        totalAmount,
-        pickupDate: formData.pickupDate,
-        pickupTime: formData.pickupTime,
-        messageCard: formData.messageCard,
-        paymentMethod: formData.paymentMethod,
-        gcashRefNumber: formData.gcashRefNumber.trim(),
-        gcashReceiptImage: receiptImage || undefined,
-      }));
+    try {
+      const order = await Promise.resolve(
+        createOrder({
+          customerId: currentUser!.id,
+          customerName: formData.fullName,
+          contactNumber: formData.contactNumber,
+          email: formData.email,
+          items: checkoutItems,
+          totalAmount,
+          pickupDate: formData.pickupDate,
+          pickupTime: formData.pickupTime,
+          messageCard: formData.messageCard,
+          paymentMethod: formData.paymentMethod,
+          gcashRefNumber: formData.gcashRefNumber.trim(),
+          gcashReceiptImage: receiptImage || undefined,
+        })
+      );
+
+      if (!order || !order.orderNumber) {
+        throw new Error('Order was not created. Please try again.');
+      }
 
       setOrderNumber(order.orderNumber);
       setOrderComplete(true);
       if (!directProduct) {
         clearCart();
       }
+    } catch (err) {
+      console.error('Checkout failed:', err);
+      setError(
+        err instanceof Error
+          ? `Could not complete your order: ${err.message}`
+          : 'Could not complete your order. Please try again.'
+      );
+    } finally {
       setLoading(false);
-    }, 1000);
+    }
   };
 
   // Get tomorrow's date as minimum
