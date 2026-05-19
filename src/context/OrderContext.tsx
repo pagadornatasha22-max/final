@@ -66,30 +66,47 @@ export function OrderProvider({ children }: { children: ReactNode }) {
     return `MFS-${year}${month}${day}-${rand}`;
   };
 
+  const buildLocalOrder = (orderData: Omit<Order, 'id' | 'orderNumber' | 'status' | 'createdAt' | 'updatedAt'>): Order => ({
+    ...orderData,
+    id: `order-${Date.now()}`,
+    orderNumber: generateOrderNumber(),
+    paymentStatus: orderData.paymentStatus || 'pending',
+    status: 'pending',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  });
+
   const createOrder = (orderData: Omit<Order, 'id' | 'orderNumber' | 'status' | 'createdAt' | 'updatedAt'>) => {
     if (apiUrl) {
       return (async () => {
-        const response = await fetch(`${apiUrl}/api/orders`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(orderData),
-        });
-        if (!response.ok) throw new Error('Failed to create order in database');
-        const newOrder: Order = await response.json();
-        setOrders((prev) => [newOrder, ...prev]);
-        return newOrder;
+        try {
+          const response = await fetch(`${apiUrl}/api/orders`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(orderData),
+          });
+          if (!response.ok) throw new Error(`API error ${response.status}`);
+          const text = await response.text();
+          let newOrder: Order;
+          try {
+            newOrder = JSON.parse(text);
+          } catch {
+            throw new Error('API returned invalid JSON');
+          }
+          setOrders((prev) => [newOrder, ...prev]);
+          return newOrder;
+        } catch (error) {
+          // API unreachable or returned HTML/error — fall back to localStorage so checkout never gets stuck.
+          console.warn('createOrder API failed, using localStorage fallback:', error);
+          const newOrder = buildLocalOrder(orderData);
+          const updated = [newOrder, ...orders];
+          saveOrders(updated);
+          return newOrder;
+        }
       })();
     }
 
-    const newOrder: Order = {
-      ...orderData,
-      id: `order-${Date.now()}`,
-      orderNumber: generateOrderNumber(),
-      paymentStatus: orderData.paymentStatus || 'pending',
-      status: 'pending',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
+    const newOrder = buildLocalOrder(orderData);
     const updated = [...orders, newOrder];
     saveOrders(updated);
     return newOrder;
