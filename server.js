@@ -300,35 +300,100 @@ app.post("/api/orders", asyncHandler(async (req, res) => {
   const orderNumber = generateOrderNumber();
   const isCustom = data.isCustomOrder ? 1 : 0;
 
-  const [result] = await pool.query(
-    `INSERT INTO orders
-     (order_number, customer_id, customer_name, contact_number, email, total_amount, pickup_date, pickup_time,
-      message_card, payment_method, gcash_ref_number, gcash_receipt_image, payment_status, is_custom_order, status)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'gcash', ?, ?, 'pending', ?, 'pending')`,
-    [
-      orderNumber,
-      Number(data.customerId),
-      data.customerName,
-      data.contactNumber,
-      data.email,
-      Number(data.totalAmount || 0),
-      data.pickupDate,
-      data.pickupTime,
-      data.messageCard || "",
-      data.gcashRefNumber || null,
-      data.gcashReceiptImage || null,
-      isCustom,
-    ]
-  );
+  // -------- Step 1: Resolve customer_id (must be a valid INT that exists in users) --------
+  let customerId = Number(data.customerId);
 
-  const orderId = result.insertId;
+  if (!Number.isFinite(customerId) || customerId <= 0) {
+    // customerId is something like "user-1734567890" or "admin-001" (localStorage fallback).
+    // Look up by email instead.
+    const [byEmail] = await pool.query("SELECT id FROM users WHERE email = ? LIMIT 1", [data.email]);
+    if (byEmail.length) {
+      customerId = byEmail[0].id;
+    } else {
+      // Customer doesn't exist in Aiven yet — create them so the order can save.
+      const [created] = await pool.query(
+        `INSERT INTO users (full_name, email, username, contact_number, address, password, role)
+         VALUES (?, ?, ?, ?, '', ?, 'customer')`,
+        [
+          data.customerName || 'Guest Customer',
+          data.email,
+          (data.email || `guest_${Date.now()}`).split('@')[0] + '_' + Date.now(),
+          data.contactNumber || '',
+          'guest-' + Date.now(),
+        ]
+      );
+      customerId = created.insertId;
+    }
+  } else {
+    // Numeric — confirm the row exists in users.
+    const [exists] = await pool.query("SELECT id FROM users WHERE id = ? LIMIT 1", [customerId]);
+    if (!exists.length) {
+      return res.status(400).json({
+        error: `Customer id ${customerId} does not exist in the users table. Please log out and register again.`,
+      });
+    }
+  }
 
-  for (const item of data.items || []) {
-    await pool.query(
-      `INSERT INTO order_items (order_id, product_id, product_name, product_price, product_image, quantity)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [orderId, Number(item.product.id), item.product.name, Number(item.product.price), item.product.image, Number(item.quantity)]
+  // -------- Step 2: Insert into orders --------
+  let orderId;
+  try {
+    const [result] = await pool.query(
+      `INSERT INTO orders
+       (order_number, customer_id, customer_name, contact_number, email, total_amount, pickup_date, pickup_time,
+        message_card, payment_method, gcash_ref_number, gcash_receipt_image, payment_status, is_custom_order, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'gcash', ?, ?, 'pending', ?, 'pending')`,
+      [
+        orderNumber,
+        customerId,
+        data.customerName || '',
+        data.contactNumber || '',
+        data.email || '',
+        Number(data.totalAmount || 0),
+        data.pickupDate,
+        data.pickupTime,
+        data.messageCard || "",
+        data.gcashRefNumber || null,
+        data.gcashReceiptImage || null,
+        isCustom,
+      ]
     );
+    orderId = result.insertId;
+  } catch (err) {
+    console.error('INSERT into orders failed:', err);
+    return res.status(500).json({
+      error: 'Failed to insert order into Aiven.',
+      sqlMessage: err.sqlMessage || err.message,
+      sqlState: err.sqlState,
+      code: err.code,
+    });
+  }
+
+  // -------- Step 3: Insert each order item --------
+  for (const item of data.items || []) {
+    let productId = Number(item.product?.id);
+    if (!Number.isFinite(productId) || productId <= 0) {
+      // Product came from localStorage seed (id like "prod-001"). Try to find it by name.
+      const [match] = await pool.query("SELECT id FROM products WHERE name = ? LIMIT 1", [item.product?.name]);
+      productId = match.length ? match[0].id : null;
+    }
+
+    try {
+      await pool.query(
+        `INSERT INTO order_items (order_id, product_id, product_name, product_price, product_image, quantity)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [
+          orderId,
+          productId,
+          item.product?.name || 'Item',
+          Number(item.product?.price || 0),
+          item.product?.image || null,
+          Number(item.quantity || 1),
+        ]
+      );
+    } catch (err) {
+      console.error('INSERT into order_items failed:', err);
+      // Don't abort the whole order — log and continue.
+    }
   }
 
   if (data.customArrangement) {
@@ -631,8 +696,13 @@ app.use((req, res) => {
 
 // ---------- Error Handler ----------
 app.use((err, _req, res, _next) => {
-  console.error(err);
-  res.status(500).json({ error: err.message || "Server error" });
+  console.error('SERVER ERROR:', err);
+  res.status(500).json({
+    error: err.message || "Server error",
+    sqlMessage: err.sqlMessage,
+    sqlState: err.sqlState,
+    code: err.code,
+  });
 });
 
 const PORT = process.env.PORT || 3000;
