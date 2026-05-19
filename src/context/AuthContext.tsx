@@ -18,7 +18,8 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [users, setUsers] = useState<User[]>([]);
-  const apiUrl = (import.meta as any).env?.VITE_API_URL as string | undefined;
+  const apiUrl = ((import.meta as any).env?.VITE_API_URL ||
+    (typeof window !== 'undefined' && window.location.hostname !== 'localhost' ? window.location.origin : undefined)) as string | undefined;
 
   useEffect(() => {
     const savedUser = localStorage.getItem('macels_currentUser');
