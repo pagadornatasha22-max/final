@@ -20,7 +20,8 @@ const OrderContext = createContext<OrderContextType | undefined>(undefined);
 export function OrderProvider({ children }: { children: ReactNode }) {
   const [orders, setOrders] = useState<Order[]>([]);
   const [isDatabaseConnected, setIsDatabaseConnected] = useState(false);
-  const apiUrl = (import.meta as any).env?.VITE_API_URL as string | undefined;
+  const apiUrl = ((import.meta as any).env?.VITE_API_URL ||
+    (typeof window !== 'undefined' && window.location.hostname !== 'localhost' ? window.location.origin : undefined)) as string | undefined;
 
   useEffect(() => {
     refreshOrders();
